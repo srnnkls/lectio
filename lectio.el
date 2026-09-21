@@ -39,9 +39,9 @@
   :group 'text)
 
 (defconst lectio--fence
-  (rx bol (group (>= 3 (any "`~"))) (group (zero-or-more nonl)) "\n"
+  (rx bol (group (>= 3 (in "`~"))) (group (zero-or-more nonl)) "\n"
       (group (minimal-match (zero-or-more anychar)))
-      bol (backref 1) (zero-or-more (any " \t")) (or "\n" eos))
+      bol (backref 1) (zero-or-more (in " \t")) (or "\n" eos))
   "A fenced code block: its opening run, its info string and its body.
 The run is captured so the closing fence has to match the opening one,
 and the info string because it names the language the body is in.")
@@ -86,16 +86,16 @@ otherwise read as emphasis."
   "Return TEXT escaped, with its links and emphasis turned into HTML."
   (thread-last (lectio--escape text)
                (replace-regexp-in-string
-                (rx "[" (group (zero-or-more (not (any "]" "\n")))) "]"
-                    "(" (group (zero-or-more (not (any ")" "\n")))) ")")
+                (rx "[" (group (zero-or-more (not (in "]" "\n")))) "]"
+                    "(" (group (zero-or-more (not (in ")" "\n")))) ")")
                 "<a href=\"\\2\">\\1</a>")
                (replace-regexp-in-string
                 (rx (or "**" "__") (group (minimal-match (one-or-more nonl)))
                     (or "**" "__"))
                 "<strong>\\1</strong>")
                (replace-regexp-in-string
-                (rx (any "*_") (group (minimal-match (one-or-more (not (any "*_")))))
-                    (any "*_"))
+                (rx (in "*_") (group (minimal-match (one-or-more (not (in "*_")))))
+                    (in "*_"))
                 "<em>\\1</em>")))
 
 (defun lectio--list-html (lines ordered)
@@ -117,7 +117,7 @@ otherwise read as emphasis."
               (length (match-string 1 block))
               (lectio--spans (match-string 2 block))
               (length (match-string 1 block))))
-     ((seq-every-p (lambda (line) (string-match-p (rx bos (any "-*+") " ") line))
+     ((seq-every-p (lambda (line) (string-match-p (rx bos (in "-*+") " ") line))
                    lines)
       (lectio--list-html
        (mapcar (lambda (line) (substring line 2)) lines) nil))
