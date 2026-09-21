@@ -4,7 +4,7 @@
          "0.1.0"
          "Read markdown as the text shr draws from it")
 
-(website-url "https://github.com/srnnkls/lectio.el")
+(website-url "https://github.com/srnnkls/lectio")
 (license "GPL-3.0-or-later")
 
 (keywords "text" "hypermedia")

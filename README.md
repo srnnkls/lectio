@@ -1,4 +1,4 @@
-# lectio.el
+# lectio
 
 Read markdown as the text shr draws from it.
 
