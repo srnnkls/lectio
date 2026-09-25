@@ -22,16 +22,28 @@ interface for agents, renders messages as markdown when lectio is installed.
 
 ## Installation
 
-lectio needs Emacs 29.1 or newer. Clone the repository and put it on your `load-path`:
+lectio needs Emacs 29.1 or newer.
 
-```sh
-git clone https://github.com/srnnkls/lectio.git ~/.emacs.d/site-lisp/lectio
-```
+On Emacs 30 or newer, install it with `use-package`:
 
 ```emacs-lisp
-(add-to-list 'load-path "~/.emacs.d/site-lisp/lectio")
-(require 'lectio)
+(use-package lectio
+  :vc (:url "https://github.com/srnnkls/lectio" :rev :newest))
 ```
+
+On Emacs 29, run:
+
+```
+M-x package-vc-install RET https://github.com/srnnkls/lectio RET
+```
+
+On Doom Emacs, add this to `packages.el`:
+
+```emacs-lisp
+(package! lectio :recipe (:host github :repo "srnnkls/lectio"))
+```
+
+A package that uses lectio loads it with `(require 'lectio)`.
 
 ## Getting started
 
@@ -138,6 +150,17 @@ default font and is not filled to a width.
 | *code callback* | the `CODE` function that returns the text drawn in place of each fence |
 
 ## Development
+
+To work on lectio, clone it and put the checkout on your `load-path`:
+
+```sh
+git clone https://github.com/srnnkls/lectio.git
+```
+
+```emacs-lisp
+(add-to-list 'load-path "/path/to/lectio")
+(require 'lectio)
+```
 
 Tests and lint run through [Eask](https://emacs-eask.github.io/):
 
