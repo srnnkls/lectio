@@ -1,6 +1,10 @@
 # lectio
 
-Read markdown as the text shr draws from it.
+*lectiō • a reading*
+
+> From Latin *lectiō* ("a reading"), from *legō* ("to gather, to read")
+>
+> Pronunciation: /ˈlek.ti.oː/
 
 ## About
 
