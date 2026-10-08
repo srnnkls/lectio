@@ -137,12 +137,14 @@ The built-in parser covers the markdown that agents and short documents write:
 | `**strong**`, `__strong__` | bold |
 | `*emphasis*`, `_emphasis_` | italic |
 | `[text](url)` | an shr link |
+| a GFM table: header, `---` rule, rows | columns padded in the text, the header bold and ruled off; `:` in the rule aligns a column |
 | anything else | a paragraph, its lines joined |
 
 Blank lines separate blocks, and a block is a list or a quote only when every one of its lines is
 an item or a quoted line. Give a heading its own block: other lines in the same block are
-dropped. Nested lists, tables, images, raw HTML and reference links are not read and come out as
-paragraph text. `shr-use-fonts` and `shr-width` are nil while drawing, so the text uses the
+dropped. A table may follow a line of prose directly and ends at the first line without a `|`;
+a `|` escaped with `\` or inside a code span stays in its cell. Nested lists, images, raw HTML
+and reference links are not read and come out as paragraph text. `shr-use-fonts` and `shr-width` are nil while drawing, so the text uses the
 default font and is not filled to a width.
 
 ## Concepts
