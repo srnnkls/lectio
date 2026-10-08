@@ -29,6 +29,7 @@
 
 ;;; Code:
 
+(require 'dom)
 (require 'rx)
 (require 'seq)
 (require 'shr)
@@ -107,11 +108,105 @@ otherwise read as emphasis."
                      lines "\n")
           (if ordered "ol" "ul")))
 
+(defconst lectio--table-rule
+  (rx bos (opt "|") (zero-or-more (in " \t"))
+      (opt ":") (one-or-more "-") (opt ":")
+      (zero-or-more (zero-or-more (in " \t")) "|" (zero-or-more (in " \t"))
+                    (opt ":") (one-or-more "-") (opt ":"))
+      (zero-or-more (in " \t")) (opt "|") eos)
+  "The delimiter row under a table's header, one run of dashes a column.")
+
+(defun lectio--table-cells (line)
+  "Return the cells of the table row LINE, its outer pipes dropped.
+A pipe escaped with a backslash, or written inside a code span, stays in
+its cell: a code span is where an agent puts a shell pipeline."
+  (let* ((line (string-remove-prefix "|" (string-trim line)))
+         (line (if (string-suffix-p "\\|" line)
+                   line
+                 (string-remove-suffix "|" line)))
+         (cells nil)
+         (cell nil)
+         (code nil)
+         (index 0))
+    (while (< index (length line))
+      (let ((char (aref line index)))
+        (cond
+         ((and (eq char ?\\) (< (1+ index) (length line))
+               (eq (aref line (1+ index)) ?|))
+          (push ?| cell)
+          (setq index (1+ index)))
+         ((and (eq char ?|) (not code))
+          (push (string-trim (concat (nreverse cell))) cells)
+          (setq cell nil))
+         (t
+          (when (eq char ?`) (setq code (not code)))
+          (push char cell))))
+      (setq index (1+ index)))
+    (push (string-trim (concat (nreverse cell))) cells)
+    (nreverse cells)))
+
+(defun lectio--table-html (header rule rows)
+  "Return the table under the HEADER line, its RULE and its ROWS as HTML.
+Every row is fitted to the header's columns, as GFM has it."
+  (let* ((columns (length (lectio--table-cells header)))
+         (aligns (mapcar (lambda (dashes)
+                           (cond ((and (string-prefix-p ":" dashes)
+                                       (string-suffix-p ":" dashes))
+                                  "center")
+                                 ((string-suffix-p ":" dashes) "right")
+                                 ((string-prefix-p ":" dashes) "left")))
+                         (lectio--table-cells rule)))
+         (row (lambda (tag line)
+                (let ((cells (lectio--table-cells line)))
+                  (format "<tr>%s</tr>"
+                          (mapconcat
+                           (lambda (column)
+                             (let ((align (nth column aligns)))
+                               (format "<%s%s>%s</%s>" tag
+                                       (if align (format " align=\"%s\"" align) "")
+                                       (lectio--spans (or (nth column cells) ""))
+                                       tag)))
+                           (number-sequence 0 (1- columns))
+                           ""))))))
+    (format "<table>\n<thead>\n%s\n</thead>\n<tbody>\n%s\n</tbody>\n</table>"
+            (funcall row "th" header)
+            (mapconcat (lambda (line) (funcall row "td" line)) rows "\n"))))
+
+(defun lectio--table-split (lines)
+  "Return LINES as (BEFORE HEADER RULE ROWS AFTER) when they hold a table.
+The table may follow prose without a blank line between; it ends at the
+first line without a pipe."
+  (let ((index 1)
+        (found nil))
+    (while (and (not found) (< index (length lines)))
+      (when (and (string-search "|" (nth (1- index) lines))
+                 (string-search "|" (nth index lines))
+                 (string-match-p lectio--table-rule (nth index lines)))
+        (setq found index))
+      (setq index (1+ index)))
+    (when found
+      (let* ((rest (nthcdr (1+ found) lines))
+             (rows (seq-take-while (lambda (line) (string-search "|" line)) rest)))
+        (list (seq-take lines (1- found))
+              (nth (1- found) lines)
+              (nth found lines)
+              rows
+              (nthcdr (length rows) rest))))))
+
 (defun lectio--block-html (block)
-  "Return the paragraph, list, heading or quote BLOCK as HTML."
-  (let ((lines (split-string block "\n" t "[ \t]+")))
+  "Return the paragraph, list, heading, quote or table BLOCK as HTML."
+  (let* ((lines (split-string block "\n" t "[ \t]+"))
+         (table (lectio--table-split lines)))
     (cond
      ((null lines) "")
+     (table
+      (pcase-let ((`(,before ,header ,rule ,rows ,after) table))
+        (string-join
+         (seq-remove #'string-empty-p
+                     (list (lectio--block-html (string-join before "\n"))
+                           (lectio--table-html header rule rows)
+                           (lectio--block-html (string-join after "\n"))))
+         "\n")))
      ((string-match lectio--heading block)
       (format "<h%d>%s</h%d>"
               (length (match-string 1 block))
@@ -178,6 +273,104 @@ was written to say."
     (shr-generic dom)
     (add-face-text-property start (point) 'lectio-code t)))
 
+(defconst lectio--table-gap "  "
+  "What stands between two columns of a drawn table.")
+
+(defun lectio--inline-text (dom)
+  "Return the text of the inline DOM, its spans in the faces they stand for."
+  (if (stringp dom)
+      dom
+    (let ((text (mapconcat #'lectio--inline-text (dom-children dom) ""))
+          (face (pcase (dom-tag dom)
+                  ((or 'strong 'b) 'bold)
+                  ((or 'em 'i) 'italic)
+                  ('code 'lectio-code)
+                  ('a 'shr-link))))
+      (when face
+        (add-face-text-property 0 (length text) face t text))
+      text)))
+
+(defun lectio--cell (dom)
+  "Return the table cell DOM as its text on one line and its alignment."
+  (cons (string-trim (replace-regexp-in-string
+                      "[ \t\n]+" " " (lectio--inline-text dom)))
+        (or (dom-attr dom 'align)
+            (when-let* ((style (dom-attr dom 'style))
+                        ((string-match (rx "text-align" (* space) ":" (* space)
+                                           (group (+ alpha)))
+                                       style)))
+              (match-string 1 style)))))
+
+(defun lectio--table-rows (dom)
+  "Return the rows of the table DOM, each a list of its cell DOMs."
+  (let ((rows nil))
+    (dolist (child (dom-children dom))
+      (pcase (and (consp child) (dom-tag child))
+        ('tr (push child rows))
+        ((or 'thead 'tbody 'tfoot)
+         (dolist (row (dom-by-tag child 'tr))
+           (push row rows)))))
+    (mapcar (lambda (row)
+              (seq-filter (lambda (cell)
+                            (and (consp cell) (memq (dom-tag cell) '(th td))))
+                          (dom-children row)))
+            (nreverse rows))))
+
+(defun lectio--pad (text width align)
+  "Return TEXT set in WIDTH columns, as ALIGN places it."
+  (let ((gap (max 0 (- width (string-width text)))))
+    (pcase align
+      ("right" (concat (make-string gap ?\s) text))
+      ("center" (concat (make-string (/ gap 2) ?\s) text
+                        (make-string (- gap (/ gap 2)) ?\s)))
+      (_ (concat text (make-string gap ?\s))))))
+
+(defun lectio--tag-table (dom)
+  "Draw the table DOM as columns padded out in the text itself.
+shr lines its columns up with `:align-to', which counts from the window
+edge and so goes astray under a line prefix or an indent.  A header row
+is drawn bold and ruled off from the rows under it."
+  (let* ((rows (mapcar (lambda (cells) (mapcar #'lectio--cell cells))
+                       (lectio--table-rows dom)))
+         (header (and rows
+                      (seq-every-p (lambda (cell) (eq (dom-tag cell) 'th))
+                                   (car (lectio--table-rows dom)))))
+         (widths (mapcar (lambda (column)
+                           (apply #'max 3
+                                  (mapcar (lambda (row)
+                                            (string-width
+                                             (or (car (nth column row)) "")))
+                                          rows)))
+                         (number-sequence
+                          0 (1- (apply #'max 0 (mapcar #'length rows))))))
+         (aligns (mapcar (lambda (column)
+                           (seq-some (lambda (row) (cdr (nth column row))) rows))
+                         (number-sequence 0 (1- (length widths))))))
+    (when rows
+      (shr-ensure-paragraph)
+      (seq-do-indexed
+       (lambda (row index)
+         (let ((line (string-trim-right
+                      (string-join
+                       (seq-map-indexed
+                        (lambda (width column)
+                          (lectio--pad (or (car (nth column row)) "") width
+                                       (or (cdr (nth column row))
+                                           (nth column aligns))))
+                        widths)
+                       lectio--table-gap))))
+           (when (and header (zerop index))
+             (add-face-text-property 0 (length line) 'bold t line))
+           (insert line "\n")
+           (when (and header (zerop index))
+             (insert (propertize (mapconcat (lambda (width)
+                                              (make-string width ?─))
+                                            widths lectio--table-gap)
+                                 'face 'shadow)
+                     "\n"))))
+       rows)
+      (shr-ensure-paragraph))))
+
 (defun lectio--draw (html)
   "Return the text shr draws from HTML."
   (with-temp-buffer
@@ -186,8 +379,9 @@ was written to say."
           (shr-width nil)
           (shr-indentation 0)
           (shr-external-rendering-functions
-           (cons '(code . lectio--tag-code)
-                 shr-external-rendering-functions)))
+           (append '((code . lectio--tag-code)
+                     (table . lectio--tag-table))
+                   shr-external-rendering-functions)))
       (shr-render-region (point-min) (point-max)))
     (string-trim (buffer-string))))
 

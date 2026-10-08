@@ -141,5 +141,57 @@ was written to say."
                    (get-text-property (string-search "git" drawn)
                                       'face drawn))))))
 
+(ert-deftest lectio-renders-a-table-with-its-alignment ()
+  (let ((html (lectio-tests--html
+               "| Name | Count |\n|:-----|------:|\n| `alpha` | 1 |\n| **beta** | 22 |")))
+    (should (string-search "<thead> <tr><th align=\"left\">Name</th><th align=\"right\">Count</th></tr> </thead>" html))
+    (should (string-search "<td align=\"left\"><code>alpha</code></td>" html))
+    (should (string-search "<td align=\"left\"><strong>beta</strong></td><td align=\"right\">22</td>" html))))
+
+(ert-deftest lectio-reads-a-table-under-a-line-of-prose ()
+  "An agent introduces a table on the line above it as often as not."
+  (let ((html (lectio-tests--html "Results:\n| a | b |\n|---|---|\n| 1 | 2 |\nafter")))
+    (should (string-search "<p>Results:</p>" html))
+    (should (string-search "<td>1</td><td>2</td>" html))
+    (should (string-search "<p>after</p>" html))))
+
+(ert-deftest lectio-keeps-escaped-and-quoted-pipes-in-their-cell ()
+  (let ((html (lectio-tests--html "| cmd | note |\n|---|---|\n| `a | b` | x \\| y |")))
+    (should (string-search "<td><code>a | b</code></td><td>x | y</td>" html))))
+
+(ert-deftest lectio-fits-a-row-to-the-header ()
+  "A short row is filled out and a long one cut, as GFM has it."
+  (let ((html (lectio-tests--html "| a | b |\n|---|---|\n| 1 |\n| 1 | 2 | 3 |")))
+    (should (string-search "<tr><td>1</td><td></td></tr>" html))
+    (should (string-search "<tr><td>1</td><td>2</td></tr>" html))
+    (should-not (string-search "3" html))))
+
+(ert-deftest lectio-draws-a-table-in-aligned-columns ()
+  "The columns line up in the text itself, wherever it is inserted."
+  (let* ((drawn (lectio-render
+                 "| Name | Count |\n|------|------:|\n| `alpha` | 1 |\n| beta | 22 |"))
+         (lines (split-string drawn "\n")))
+    (should (equal (mapcar #'substring-no-properties lines)
+                   '("Name   Count"
+                     "─────  ─────"
+                     "alpha      1"
+                     "beta      22")))
+    (should-not (text-property-not-all 0 (length drawn) 'display nil drawn))
+    (should (memq 'bold (ensure-list (get-text-property 0 'face drawn))))
+    (should (memq 'lectio-code
+                  (ensure-list (get-text-property (string-search "alpha" drawn)
+                                                  'face drawn))))))
+
+(ert-deftest lectio-draws-a-table-from-another-backend ()
+  "A backend that aligns by style rather than attribute is drawn the same."
+  (let ((lectio-html-function
+         (lambda (_markdown)
+           (concat "<table><thead><tr><th>k</th>"
+                   "<th style=\"text-align:right\">v</th></tr></thead>"
+                   "<tbody><tr><td>key</td>"
+                   "<td style=\"text-align:right\">1</td></tr></tbody></table>"))))
+    (should (equal (substring-no-properties (lectio-render "table"))
+                   "k      v\n───  ───\nkey    1"))))
+
 (provide 'lectio-tests)
 ;;; lectio-tests.el ends here
